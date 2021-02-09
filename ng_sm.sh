@@ -1,14 +1,54 @@
 #!/bin/bash
 ##### NGINX Site manager
+prep_conf ()
+{
+local default=$1
+local name=$2
+read input
+#local input=$3
+if [[ -n "$input" ]]; then
+  value=$input
+else
+  value=$default
+fi
+echo ${name}=\"$value\" >> ngm.conf.tmp
+}
 
-ngconf_path="/etc/nginx" # Your NGINX mainfolder
-av_sites="sites-available" # Where your available configs are...
-en_sites="sites-enabled" # Where your enabled configs are...
-editor="nano" # Editor of choice
-### Examples: "service nginx reload - nginx -s reload - /etc/init.d/nginx reload"
-restart="rc-service nginx reload" # Command to restart NGINX
+##check if this system is run using init.d or systemd
+check_initdsystemd ()
+{
+inits=`ps --no-headers -o comm 1`
+if [[ "${inits}" == "init" ]]
+    then
+	defrestart="/etc/init.d/nginx restart"
+elif [[ "${inits}" == "systemd" ]]
+    then
+	defrestart="systemctl nginx restart"
+else
+        defrestart=""
+fi
+}
 
-
+setup_ngm ()
+{
+    rm ngm.conf.tmp > /dev/null 2> /dev/null
+    check_initdsystemd
+    echo "Setup"
+    echo "Enter the path to your NGINX config folder (default: /etc/nginx)"
+    prep_conf "/etc/nginx" "ngconf_path"
+    echo "Enter the name of the directory containing the available configurations (default: sites-available)"
+    prep_conf "sites-available" "av_sites"
+    echo "Enter the name of the directory containing the enabled configurations (default: sites-enabled)"
+    prep_conf "sites-enabled" "en_sites"
+    echo "Enter the full path or command for the editor to use to edit the configuration files (default: nano)"
+    prep_conf "nano" "editor"
+    echo "Set the command to restart the NGINX webserver (default: ${defrestart})"
+    prep_conf ${defrestart} "restart"
+    mkdir ~/.ngm > /dev/null 2> /dev/null
+    mv ngm.conf.tmp ~/.ngm/ngm.conf
+    echo "Config was created."
+    exit
+}
 
 ## Building arrays 
 arr_enable ()
@@ -38,7 +78,7 @@ createmenu ()
   local arrsize=$1
   local check='^[0-9q]+$'
   if [ "$arrsize" -gt 1 ] 
-  then 
+  then
      PS3="1-$arrsize or q to quit: "
    else
      PS3="1 or q to quit: "
@@ -178,6 +218,32 @@ edit ()
 }
 
 
-## and that's it...
+## checking if called by root...
 
-getinput "${@}"
+if [ "$EUID" -ne 0 ]
+  then echo "Please run NGINX Site Manager as root or using sudo/doas"
+  exit
+fi
+
+if [[ -d ~/.ngm ]]
+then
+   . ~/.ngm/ngm.conf
+   getinput "${@}"
+else
+    echo "Configdirectory doesn't exist"
+    until [ "$selection" = "0" ]; do
+    echo ""
+    echo "      1  -  Setup"
+    echo "      0  -  Exit"
+    echo ""
+    echo -n "  Enter selection: "
+    read selection
+    echo ""
+  case $selection in
+    1 ) setup_ngm
+        ;;
+    0 ) exit ;;
+    * ) incorrect_selection  ;;
+  esac
+done
+fi
